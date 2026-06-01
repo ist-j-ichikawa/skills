@@ -89,25 +89,47 @@ gh api repos/{owner}/{repo}/pages \
 
 > なぜ `build_type` で判定するか: 「Actions ソースだと `source.branch` が `null` になる」のは観測的には起きるが GitHub の公開 schema には明記がない (schema 上 branch は required 扱い)。文書化された `build_type` (`legacy` / `workflow`) を一次判定に使い、`source.branch` の有無は念のための二次チェックにしている。
 
-### 4. 公開ブランチの worktree を /tmp に切る + EnterWorktree で session 切替
+### 4. 公開ブランチの worktree を用意して session を切り替える
 
-Claude Code の `EnterWorktree` tool は **新規ブランチ作成しかしない** (既存ブランチを checkout できず、`.claude/worktrees/` に切るだけ)。一方 `PAGES_BRANCH` は既存ブランチで、かつ本リポの `.claude/worktrees/` には置きたくない (他の作業 worktree と並ぶと事故りやすい / Pages 専用ブランチを誤って汚しやすい)。
-
-そこで「自分で `git worktree add` して、それを `EnterWorktree(path=...)` で開く」組み合わせで運用する。
+`PAGES_BRANCH` を **どの worktree でチェックアウトするか**を最初に決める。実運用では、公開ブランチが既に別の worktree (例: `.claude/worktrees/review`) で常設されていることがある (レビュー用に開きっぱなしのリポなど)。その状態で自分用に `git worktree add` しようとすると `'<branch>' is already used by worktree '...'` で**必ず失敗する**ので、先に既存を調べて分岐する。
 
 ```bash
-# /tmp に隔離。realpath で実体パスに正規化しておくのが重要 (理由は下)。
+# 公開ブランチを既にチェックアウトしている worktree がないか調べる
+EXIST_WT=$(git worktree list --porcelain | awk -v b="refs/heads/$PAGES_BRANCH" '
+  /^worktree /{p=$2} /^branch /{if($2==b) print p}')
+```
+
+**ケース A: 既存 worktree が `$PAGES_BRANCH` を握っている (`EXIST_WT` が非空)**
+
+それを **再利用する** (自分で add すると衝突するため。また、他用途で常設された worktree を勝手に消さない方針に従う)。ただし他作業を壊さないよう、使う前に **clean かつ origin と同期**を確認する。
+
+```bash
+WT="$EXIST_WT"
+git -C "$WT" fetch origin "$PAGES_BRANCH"
+# 未コミットの変更があれば触らない (他の作業中かもしれない)
+test -z "$(git -C "$WT" status --porcelain)" || { echo "既存 worktree $WT に未コミット変更あり。中断。"; exit 1; }
+# origin より遅れている分だけ前進。乖離 (非 fast-forward) なら勝手に巻き戻さず中断
+git -C "$WT" merge --ff-only "origin/$PAGES_BRANCH"
+```
+
+`OWN_WT=0` (自分が作った worktree ではない) として覚えておき、§9 では **消さない**。
+
+**ケース B: どの worktree も握っていない (`EXIST_WT` が空)**
+
+従来どおり自分用の worktree を `/tmp` に切り、最新化する。
+
+```bash
+# realpath で実体パスに正規化 (macOS の /tmp→/private/tmp 対策、理由は下)。
 # タイムスタンプで必ずユニーク名にする (同時実行や残骸で衝突しないため)。
 WT="$(realpath /tmp)/pages-publish-$(date +%s)"
-
-# 公開ブランチの最新を取り込んでから worktree を切る。
-#   -B で local PAGES_BRANCH を origin の最新に揃えてチェックアウトするので、
-#   ローカルが古いまま push して non-fast-forward で弾かれる事故を防げる。
-#   公開ブランチは「この skill が push するだけ」の前提なので、local 側の
-#   未 push 差分を origin に合わせて捨てて困ることはない。
 git fetch origin "$PAGES_BRANCH"
+# -B で local PAGES_BRANCH を origin の最新に揃えてチェックアウトするので、
+# ローカルが古いまま push して non-fast-forward で弾かれる事故を防げる。
+# 公開ブランチは「この skill が push するだけ」の前提なので、未 push 差分を捨てて困らない。
 git worktree add -B "$PAGES_BRANCH" "$WT" "origin/$PAGES_BRANCH"
 ```
+
+`OWN_WT=1` として覚えておき、§9 で `git worktree remove` する。
 
 > なぜ `realpath /tmp` か: macOS では `/tmp` は `/private/tmp` への symlink で、`git worktree add /tmp/foo` しても `git worktree list` には `/private/tmp/foo` で登録される。`EnterWorktree(path=...)` は「渡した path が `git worktree list` に載っていること」を要求するため、`/tmp/...` のまま渡すとパス表記の食い違いで弾かれうる。最初から `realpath` で実体パスに寄せておけば、add・EnterWorktree・remove の全段で表記が揃う (Linux では `/tmp` は symlink でないので realpath は無害)。
 
@@ -116,7 +138,7 @@ git worktree add -B "$PAGES_BRANCH" "$WT" "origin/$PAGES_BRANCH"
 - `EnterWorktree(path=$WT)` で session の CWD が worktree 内に移る
 - これにより以降のコマンドが本リポを指して暴れる事故を構造的に防げる
 
-なお、すべてのコマンドを `git -C "$WT"` で明示的に worktree 先に向ける運用でも代替できる (tool 必須ではない)。特に**既に別の worktree session 内から呼ばれた場合は `EnterWorktree(path=/tmp/...)` が弾かれる**ため (§前提・§ハマりどころ)、その状況では `git -C "$WT"` フォールバックに切り替える。
+ケース A の既存 worktree は `.claude/worktrees/` 配下なら既に worktree session 内にいても `EnterWorktree(path=...)` で入れる。ケース B の `/tmp` worktree は `.claude/worktrees/` 配下でないため、**既に別の worktree session 内から呼ばれた場合は `EnterWorktree(path=/tmp/...)` が弾かれる** (§前提・§ハマりどころ)。なお、すべてのコマンドを `git -C "$WT"` で明示的に worktree 先に向ける運用でも代替できる (tool 必須ではない)。EnterWorktree が使えない状況ではこの `git -C "$WT"` フォールバックに切り替える。
 
 session 切替直後に `pwd` と `git branch --show-current` が `$PAGES_BRANCH` になっていることを必ず確認する。違っていたら ExitWorktree で session を戻し、`git worktree remove --force` で片付けてエラー終了。
 
@@ -165,17 +187,18 @@ private Pages (`public: false`) なら「ログイン済みブラウザでのみ
 
 ### 9. ExitWorktree + `git worktree remove` で畳む
 
-`EnterWorktree` を **`path` モード**で呼んだ場合、`ExitWorktree` は worktree のディレクトリを消さない (tool 仕様: path で入った worktree は session を戻すだけ)。worktree の実体は手動で消す。
+`EnterWorktree` を **`path` モード**で呼んだ場合、`ExitWorktree` は worktree のディレクトリを消さない (tool 仕様: path で入った worktree は session を戻すだけ)。worktree の実体を消すのは **§4 ケース B で自分が作った `/tmp` の worktree だけ** (`OWN_WT=1`)。ケース A で再利用した既存 worktree (例 `.claude/worktrees/review`) は他用途の常設物なので残す。
 
 ```
 ExitWorktree(action="keep")
 ↓
-git worktree remove --force "$WT"   # 本リポ側 (session が戻った後) で実行
+# 自分で作った worktree のときだけ実体を消す。既存を再利用した場合 (OWN_WT=0) は残す。
+[ "$OWN_WT" = 1 ] && git worktree remove --force "$WT"   # 本リポ側 (session が戻った後) で実行
 ```
 
 `action="remove"` を指定しても、path モードで入った worktree の実体は消えない (tool が消すのは `EnterWorktree` 自身が `name` モードで作った worktree だけ)。つまり remove を指定しても結果は keep と同じなので、迷わず `keep` を使い実体は `git worktree remove` で消す。`--force` を付けるのは、パス表記の揺れがあっても確実に外すため (既に消えていてもエラーは無視してよい)。
 
-途中でエラーが出た場合も、最後に必ず `ExitWorktree` で session を戻し、`git worktree remove --force` で残骸を消してから終了する (本リポの worktree 領域に残骸を残さない)。
+途中でエラーが出た場合も、最後に必ず `ExitWorktree` で session を戻す。`git worktree remove --force` で残骸を消すのは `OWN_WT=1` (自分が作った `/tmp` の worktree) のときだけ。既存を再利用していた (`OWN_WT=0`) なら消さない。
 
 ## やらないこと
 
@@ -183,6 +206,7 @@ git worktree remove --force "$WT"   # 本リポ側 (session が戻った後) で
 - main や他ブランチの merge (公開ブランチは history 持ち込み禁止の運用が前提)
 - 複数ファイルの一括公開 (1 回 1 ファイル。複数あるなら skill を複数回呼ぶ)
 - 本リポ側 (メイン作業ツリー) でのファイル操作
+- 自分が作っていない worktree の削除 (常設の `.claude/worktrees/*` 等は §4 ケース A で再利用するだけ。消すのは自分が切った `/tmp` のものだけ)
 - `git push --force` (公開ブランチは単純 fast-forward 前提。最新は §4 の `fetch` + `-B` で揃える)
 - Pages 設定の変更 (読み取りのみ。push だけで反映される)
 
@@ -201,7 +225,7 @@ git worktree remove --force "$WT"   # 本リポ側 (session が戻った後) で
 - **既に worktree session 内から呼ばれると `EnterWorktree(path=/tmp/...)` が弾かれる**: `EnterWorktree` は「既に worktree 内にいる状態での path 切替」では、ターゲットが `.claude/worktrees/` 配下であることを要求する。本 skill は意図して `/tmp` に置くため、この状況では path 切替が通らない。先に `ExitWorktree(action="keep")` でメイン作業ツリーに戻ってから起動するか、`EnterWorktree` を諦めて全コマンドを `git -C "$WT"` で worktree に向ける (§4 のフォールバック)。
 - **macOS の `/tmp` は `/private/tmp` への symlink**: `git worktree add /tmp/foo` しても `git worktree list` には `/private/tmp/foo` で登録される。`EnterWorktree(path=...)` の path 照合や後の `git worktree remove` がパス不一致で滑る原因になる。§4 のように `WT="$(realpath /tmp)/..."` で最初から実体パスに寄せておけば全段で表記が揃う。removeは念のため `git worktree remove --force "$WT"` で確実に外す (既に消えていてもエラーは無視してよい)。
 - **`EnterWorktree(path=...)` は worktree を消さない**: 自分で `git worktree add` した worktree を `path` モードで開いた場合、`ExitWorktree` は session を戻すだけで実体を残す (`action="remove"` を指定しても消えない)。本リポに戻った後に手動で `git worktree remove --force "$WT"` する (§9)。
-- **残骸 worktree がブランチを掴む**: 中断などで `/tmp/pages-publish-*` が残り、それが `$PAGES_BRANCH` を握ったままだと、次回の `git worktree add -B "$PAGES_BRANCH" ...` が `'<branch>' is already used by worktree '...'` で失敗する。タイムスタンプ別名なのでディレクトリ名自体は衝突しないが、ブランチの取り合いになる。`git worktree list` で `/tmp/pages-publish-*` を探し `git worktree remove --force <path>` で掃除してから再実行する。
+- **公開ブランチを既存 worktree が握っている**: `git worktree add -B "$PAGES_BRANCH" ...` は、そのブランチが既にどこかの worktree でチェックアウトされていると `'<branch>' is already used by worktree '...'` で失敗する。これは 2 パターンある。(1) 中断で残った自分の `/tmp/pages-publish-*` の残骸 → `git worktree remove --force <path>` で掃除してよい。(2) レビュー用などに常設された正規の worktree (例 `.claude/worktrees/review`) → 消さずに **§4 ケース A で再利用する**。どちらかは path で判断する (`/tmp/pages-publish-*` は自分の残骸、それ以外は他用途)。§4 の `EXIST_WT` チェックでこの分岐は自動で入る。
 
 ### 認証まわり
 
@@ -220,12 +244,12 @@ git worktree remove --force "$WT"   # 本リポ側 (session が戻った後) で
      --jq '{branch:.source.branch, path:.source.path, html_url:.html_url, public:.public, build_type:.build_type}'
    → build_type=legacy  PAGES_BRANCH=review  PAGES_BASE_URL=https://xxxx.pages.github.io/  public=false
    (build_type=workflow や branch=null なら対象外として停止)
-4. WT="$(realpath /tmp)/pages-publish-$(date +%s)"
-   git fetch origin review
-   git worktree add -B review "$WT" origin/review
-   EnterWorktree(path=$WT) で session を worktree に切替
+4. review を握る worktree を探す: EXIST_WT=$(git worktree list --porcelain ... )
+   ・既存あり (例 .claude/worktrees/review): WT=それ; fetch + merge --ff-only で同期確認; OWN_WT=0 (消さない)
+   ・既存なし: WT="$(realpath /tmp)/pages-publish-$(date +%s)"; git fetch origin review;
+              git worktree add -B review "$WT" origin/review; OWN_WT=1 (後で消す)
+   EnterWorktree(path=$WT) で session を切替 (/tmp かつ既に worktree 内なら git -C "$WT" で代替)
    git branch --show-current で review を確認
-   (既に worktree 内なら EnterWorktree は諦めて git -C "$WT" で代替)
 5. cp -- "$SRC" ./2026-05-28-設計レビュー.html
    # 注: 入力 path は §1 で絶対化済み。worktree 内 CWD では本リポの相対 path は解決不能
 6. git status --porcelain で新規 / 上書きを判定 (上書きなら告知)
@@ -233,5 +257,6 @@ git worktree remove --force "$WT"   # 本リポ側 (session が戻った後) で
    git -c commit.gpgsign=false commit -m "publish: 2026-05-28-設計レビュー.html"
    git push origin review
 8. 公開: https://xxxx.pages.github.io/2026-05-28-設計レビュー.html  (private なら要ログイン)
-9. ExitWorktree(action="keep") → 本リポ側に戻ったあと git worktree remove --force "$WT"
+9. ExitWorktree(action="keep") → 本リポ側に戻ったあと、OWN_WT=1 のときだけ git worktree remove --force "$WT"
+   (既存 worktree を再利用した OWN_WT=0 の場合は残す)
 ```
