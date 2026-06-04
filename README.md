@@ -19,7 +19,7 @@ npx skills add ist-j-ichikawa/skills -g
 
 ## インストール (Claude Code プラグイン marketplace)
 
-Claude Code 本体のプラグイン機能でも配布しています。marketplace 経由は **起動時に自動更新**できる（`autoUpdate`）ので、チームで同じバージョンを保ちたい・更新忘れで品質が振れるのを防ぎたいときはこちらが向きます。
+Claude Code 本体のプラグイン機能でも配布しています。marketplace 経由は **起動時に自動更新**できるので、チームで同じバージョンを保ちたい・更新忘れで品質が振れるのを防ぎたいときはこちらが向きます。
 
 ```text
 # marketplace を追加
@@ -29,8 +29,24 @@ Claude Code 本体のプラグイン機能でも配布しています。marketpl
 /plugin install j-stack@ist-j-ichikawa-skills
 ```
 
+**自動更新の有効化を推奨します。** サードパーティ marketplace は既定で自動更新 OFF なので、各自で ON にしてください(これをしないと skills CLI と同じく古いまま固定され、品質が振れます)。
+
+- `/plugin` → Marketplaces タブ → `ist-j-ichikawa-skills` → **Enable auto-update**、または
+- `settings.json`(`~/.claude/settings.json` など)に直接:
+
+  ```json
+  {
+    "extraKnownMarketplaces": {
+      "ist-j-ichikawa-skills": {
+        "source": { "source": "github", "repo": "ist-j-ichikawa/skills" },
+        "autoUpdate": true
+      }
+    }
+  }
+  ```
+
+- **チーム/組織で配るなら**、上記を **managed settings**(`managed-settings.json`)やプロジェクトの `.claude/settings.json` に入れておけば、メンバー全員で自動更新 ON を既定にできる(各自トグル不要)。複数人で品質が振れる問題の根本対策。
 - 起動名は **namespace 付き**になる: 例 `/j-stack:publish-html-to-pages`（skills CLI 経由だと `/publish-html-to-pages`）
-- 自動更新の ON/OFF は `/plugin` の Marketplaces タブ、または `settings.json` の `extraKnownMarketplaces.<name>.autoUpdate`
 - `disable-model-invocation: true` の skill はプラグイン経由でも同じく「明示呼び出しのみ」で動く
 
 ## 更新・管理 (skills CLI)
