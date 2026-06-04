@@ -1,0 +1,14 @@
+{
+  "name": "ist-j-ichikawa-skills",
+  "owner": {
+    "name": "ist-j-ichikawa"
+  },
+  "description": "ist-j-ichikawa の Agent Skills marketplace。",
+  "plugins": [
+    {
+      "name": "j-stack",
+      "source": "./",
+      "description": "publish-html-to-pages 等の Agent Skills 一式 (skills/ 配下を同梱)。"
+    }
+  ]
+}
