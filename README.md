@@ -1,6 +1,23 @@
 # skills
 
-ist-j-ichikawa の Agent Skills 置き場。**2 系統**で入れられます — [skills CLI](https://github.com/vercel-labs/skills)(`npx skills add`)か、Claude Code の**プラグイン marketplace**。中身は同じ `skills/<name>/SKILL.md` なので、**どちらか一方**を使えば OK。
+ist-j-ichikawa の Agent Skills 置き場。**3 通り**で入れられます — GitHub 公式の [`gh skill`](https://cli.github.com/manual/gh_skill)、[skills CLI](https://github.com/vercel-labs/skills)(`npx skills add`)、Claude Code の**プラグイン marketplace**。中身は同じ `skills/<name>/SKILL.md` なので、**いずれか 1 つ**を使えば OK。
+
+## インストール (gh skill — GitHub 公式)
+
+GitHub CLI 2.90.0+ なら、`gh skill` で直接入れられます(Claude Code / Copilot / Cursor 等マルチエージェント対応、agentskills.io 仕様)。バージョン pin ができ、GitHub ネイティブなのが利点。
+
+```bash
+# インストール (対話で対象エージェントを選択 → Claude Code なら .claude/skills/ に配置)
+gh skill install ist-j-ichikawa/skills publish-html-to-pages
+
+# バージョン固定 (タグやコミットハッシュ。タグは可変なので commit 指定が安全)
+gh skill install ist-j-ichikawa/skills publish-html-to-pages --pin <ref>
+
+# 更新 / 検索 / プレビュー
+gh skill update
+gh skill search pages
+gh skill preview ist-j-ichikawa/skills publish-html-to-pages
+```
 
 ## インストール (skills CLI)
 

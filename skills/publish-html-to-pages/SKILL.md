@@ -2,6 +2,7 @@
 name: publish-html-to-pages
 description: 単体 HTML ドキュメントを、実行リポジトリの GitHub Pages 公開ブランチ (`review` / `gh-pages` 等、Pages 設定で決まる) 経由で GitHub Pages に公開する skill。push を伴う外向き操作のため自動起動はせず、ユーザーが明示的に `/publish-html-to-pages` を呼んだときだけ動く。公開ブランチと URL は `gh api .../pages` から動的取得し、対象 HTML 1 ファイルを別 worktree から commit + push する。push のたびに公開ブランチ上の全 HTML を走査してルートの `index.html` (公開済みドキュメントへの動線=ランディングページ) を自動再生成し、同じ commit に含める。本リポの worktree や他ブランチの history は触らない。
 disable-model-invocation: true
+license: MIT
 ---
 
 # publish-html-to-pages
