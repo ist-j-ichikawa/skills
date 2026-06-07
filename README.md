@@ -2,21 +2,35 @@
 
 ist-j-ichikawa の Agent Skills 置き場。**3 通り**で入れられます — GitHub 公式の [`gh skill`](https://cli.github.com/manual/gh_skill)、[skills CLI](https://github.com/vercel-labs/skills)(`npx skills add`)、Claude Code の**プラグイン marketplace**。中身は同じ `skills/<name>/SKILL.md` なので、**いずれか 1 つ**を使えば OK。
 
-## インストール (gh skill — GitHub 公式)
+## インストール (gh skill — GitHub 公式 / 個人におすすめ)
 
-GitHub CLI 2.90.0+ なら、`gh skill` で直接入れられます(Claude Code / Copilot / Cursor 等マルチエージェント対応、agentskills.io 仕様)。バージョン pin ができ、GitHub ネイティブなのが利点。
+GitHub CLI 2.90.0+ なら、`gh skill` で直接入れられます(Claude Code / Copilot / Cursor 等マルチエージェント対応、agentskills.io 仕様)。バージョン pin・GitHub ネイティブが利点。リリース tag は ruleset で immutable 化してあるので、tag 固定でも安全です。
 
 ```bash
-# インストール (対話で対象エージェントを選択 → Claude Code なら .claude/skills/ に配置)
-gh skill install ist-j-ichikawa/skills publish-html-to-pages
+# グローバル (user スコープ) に Claude Code 用で入れる ← おすすめ。~/.claude/skills/ に配置され全プロジェクトで効く
+gh skill install ist-j-ichikawa/skills publish-html-to-pages --agent claude-code --scope user
 
-# バージョン固定 (タグやコミットハッシュ。タグは可変なので commit 指定が安全)
-gh skill install ist-j-ichikawa/skills publish-html-to-pages --pin <ref>
+# バージョン固定 (immutable な tag。さらに固めたいなら commit SHA でも可)
+gh skill install ist-j-ichikawa/skills publish-html-to-pages --agent claude-code --scope user --pin v0.2.0
 
 # 更新 / 検索 / プレビュー
-gh skill update
+gh skill update                                   # 手動更新 (自動更新ではない)
 gh skill search pages
 gh skill preview ist-j-ichikawa/skills publish-html-to-pages
+```
+
+> 既定は project スコープ + `--agent github-copilot`(非対話時)。Claude Code でグローバルに使うなら上記のとおり `--agent claude-code --scope user` を明示する。引数を省いて `gh skill install` だけなら対話でリポ/スキル/エージェントを選べる。
+
+### vercel skills CLI から `gh skill` への移行
+
+すでに `npx skills add` で入れている場合、同じ配置先 (`~/.claude/skills/...`) を使うため**先に旧版を外してから**入れ直すと綺麗です(二重管理・`--force` 上書きを避ける)。
+
+```bash
+# 1. vercel skills CLI 版を外す
+npx skills remove publish-html-to-pages -g
+
+# 2. gh skill で入れ直す (グローバル / Claude Code)
+gh skill install ist-j-ichikawa/skills publish-html-to-pages --agent claude-code --scope user
 ```
 
 ## インストール (skills CLI)
