@@ -76,6 +76,8 @@ done
 [[ -n "$RUN_DIR" ]] || { echo "--run-dir is required" >&2; exit 2; }
 [[ -n "$PROMPT_FILE" && -f "$PROMPT_FILE" ]] || { echo "--prompt-file must point to an existing file" >&2; exit 2; }
 command -v codex >/dev/null 2>&1 || { echo "codex CLI not found on PATH" >&2; exit 2; }
+[[ "$IDLE_TIMEOUT" =~ ^[0-9]+$ ]] || { echo "--idle-timeout must be a non-negative integer" >&2; exit 2; }
+[[ "$WALL_TIMEOUT" =~ ^[0-9]+$ ]] || { echo "--wall-timeout must be a non-negative integer" >&2; exit 2; }
 
 mkdir -p "$RUN_DIR"
 LOG="$RUN_DIR/log.txt"
@@ -91,8 +93,9 @@ WORK_DIR_EFFECTIVE="${WORK_DIR:-$PWD}"
 now() { date +%s; }
 # Portable file mtime (epoch). `date -r FILE` works on both BSD/macOS and GNU.
 mtime() { date -r "$1" +%s 2>/dev/null || echo 0; }
-jstr() { # minimal JSON string escaper for backslash and double-quote
-  local s=${1//\\/\\\\}; printf '%s' "${s//\"/\\\"}"
+jstr() { # JSON string escaper: control chars -> space, then backslash + quote.
+  local s; s="$(printf '%s' "$1" | tr '\n\r\t' '   ')"
+  s=${s//\\/\\\\}; printf '%s' "${s//\"/\\\"}"
 }
 
 # Atomic status writer: build to .tmp then rename so readers never see a torn file.
@@ -143,16 +146,13 @@ declare -a ARGS=(exec)
 if [[ $RESUME -eq 1 ]]; then
   ARGS+=(resume --last --skip-git-repo-check --output-last-message "$RESULT"
          -c "approval_policy=\"never\"" -c "sandbox_mode=\"$SANDBOX\"")
-  [[ -n "$MODEL" ]]  && ARGS+=(--model "$MODEL")
-  [[ -n "$EFFORT" ]] && ARGS+=(-c "model_reasoning_effort=\"$EFFORT\"")
-  ARGS+=("$PROMPT_TEXT")
 else
   ARGS+=(--color never --skip-git-repo-check --output-last-message "$RESULT"
          --cd "$WORK_DIR_EFFECTIVE" --sandbox "$SANDBOX" -c "approval_policy=\"never\"")
-  [[ -n "$MODEL" ]]  && ARGS+=(--model "$MODEL")
-  [[ -n "$EFFORT" ]] && ARGS+=(-c "model_reasoning_effort=\"$EFFORT\"")
-  ARGS+=("$PROMPT_TEXT")
 fi
+[[ -n "$MODEL" ]]  && ARGS+=(--model "$MODEL")
+[[ -n "$EFFORT" ]] && ARGS+=(-c "model_reasoning_effort=\"$EFFORT\"")
+ARGS+=("$PROMPT_TEXT")
 
 # Launch codex as a background job => it leads its own process group (pgid == pid).
 # </dev/null: with run_in_background the stdin stays open and `codex exec` would
@@ -162,19 +162,26 @@ codex "${ARGS[@]}" ${EXTRA[@]+"${EXTRA[@]}"} </dev/null >"$LOG" 2>&1 &
 CODEX_PID=$!
 
 KILLED_REASON=""
-cleanup() { # kill the whole codex process group, escalate to KILL if needed
+cleanup() { # kill the whole codex process group, then unconditionally KILL-sweep
   kill -- -"$CODEX_PID" 2>/dev/null || kill "$CODEX_PID" 2>/dev/null
   sleep 1
-  kill -0 "$CODEX_PID" 2>/dev/null && { kill -9 -- -"$CODEX_PID" 2>/dev/null || kill -9 "$CODEX_PID" 2>/dev/null; }
+  # Always sweep with KILL: harmless if already gone, and it reaps a stuck
+  # grandchild even when the group leader has already exited (so a liveness
+  # probe on the leader pid alone would wrongly skip escalation).
+  kill -9 -- -"$CODEX_PID" 2>/dev/null || kill -9 "$CODEX_PID" 2>/dev/null
 }
 on_signal() { KILLED_REASON="cancelled"; cleanup; }
 trap on_signal TERM INT
 
 write_status running "$CODEX_PID" "" ""
 
-# Watchdog: poll codex liveness + idle/wall timeouts. Refresh status periodically
-# so readers see a fresh last_output_at without us doing per-line bookkeeping.
+# Watchdog: poll codex liveness + idle/wall timeouts every TICK. Refresh
+# status.json only every REFRESH_EVERY ticks — a full atomic rewrite per 5s tick
+# is pure I/O/fork churn on hour-long runs, and readers reconcile last_output_at
+# from log.txt's mtime themselves, so a coarser cadence loses nothing.
 TICK=5
+REFRESH_EVERY=6   # ~30s between status.json refreshes
+ticks=0
 while kill -0 "$CODEX_PID" 2>/dev/null; do
   sleep "$TICK"
   t="$(now)"
@@ -190,7 +197,8 @@ while kill -0 "$CODEX_PID" 2>/dev/null; do
       KILLED_REASON="wall_timeout (${elapsed}s >= ${WALL_TIMEOUT}s)"; cleanup; break
     fi
   fi
-  write_status running "$CODEX_PID" "" ""
+  ticks=$(( ticks + 1 ))
+  [[ $(( ticks % REFRESH_EVERY )) -eq 0 ]] && write_status running "$CODEX_PID" "" ""
 done
 
 wait "$CODEX_PID" 2>/dev/null
@@ -198,9 +206,10 @@ rc=$?
 echo "$rc" >"$EXIT_FILE"
 
 # A cancel via job.sh kills codex's group from outside, so run.sh sees a signal
-# exit (not its own trap). The sentinel makes that case deterministic regardless
-# of who writes status.json last.
-[[ -z "$KILLED_REASON" && -e "$RUN_DIR/cancel.requested" ]] && KILLED_REASON="cancelled"
+# exit (not its own trap). The sentinel makes that case deterministic. Only honor
+# it when codex actually exited non-zero — an rc==0 run finished cleanly before
+# the kill landed and must not be relabelled cancelled.
+[[ -z "$KILLED_REASON" && "$rc" -ne 0 && -e "$RUN_DIR/cancel.requested" ]] && KILLED_REASON="cancelled"
 
 if [[ -n "$KILLED_REASON" ]]; then
   case "$KILLED_REASON" in

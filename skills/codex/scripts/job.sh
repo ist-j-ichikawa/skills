@@ -20,9 +20,34 @@ RUNS_ROOT="${CODEX_RUNS_ROOT:-$HOME/.local/state/j-stack-codex/runs}"
 
 die() { echo "$*" >&2; exit 2; }
 
+# Validate a run-dir arg. Called as a statement (NOT in $(...)) so die's exit
+# propagates to the real shell instead of just a command-substitution subshell.
+require_dir() { # $1=run-dir
+  [[ -n "${1:-}" ]] || die "run-dir required"
+  [[ -d "$1" ]] || die "no such run dir: $1"
+}
+
+# Atomic status.json patch: run sed (caller supplies its flags/exprs) to a .tmp
+# then rename, so readers never see a torn file.
+rewrite_status() { # $1=file  $2..=sed args
+  local f="$1"; shift; local tmp="$f.tmp"
+  sed "$@" "$f" >"$tmp" && mv -f "$tmp" "$f"
+}
+
 # Pull a top-level scalar out of status.json without requiring jq.
 field() { # $1=file $2=key
   sed -n "s/.*\"$2\":[[:space:]]*\"\{0,1\}\([^\",}]*\)\"\{0,1\}.*/\1/p" "$1" | head -1
+}
+
+# True only if pid is alive AND still a codex process. The command-name check
+# guards against PID reuse: after codex dies the OS may hand its pid to an
+# unrelated process, which a bare `kill -0` would read as "still running" —
+# masking an orphan and (worse, in cancel) risking a kill of an innocent group.
+alive_codex() { # $1=pid
+  local pid="$1"
+  [[ -n "$pid" && "$pid" != "null" ]] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  ps -p "$pid" -o command= 2>/dev/null | grep -qi codex
 }
 
 reconcile() { # $1=run-dir — flip a dead "running" job to "orphaned" (atomic)
@@ -31,24 +56,21 @@ reconcile() { # $1=run-dir — flip a dead "running" job to "orphaned" (atomic)
   local st pid; st="$(field "$st_file" status)"; pid="$(field "$st_file" pid)"
   [[ "$st" == "running" ]] || return 0
   [[ -n "$pid" && "$pid" != "null" ]] || return 0
-  if ! kill -0 "$pid" 2>/dev/null; then
-    local tmp="$st_file.tmp"
-    sed -e 's/"status":[[:space:]]*"running"/"status": "orphaned"/' \
-        -e "s/\"reason\":[[:space:]]*\"[^\"]*\"/\"reason\": \"pid $pid not alive; reconciled by job.sh\"/" \
-        "$st_file" >"$tmp" && mv -f "$tmp" "$st_file"
+  if ! alive_codex "$pid"; then
+    rewrite_status "$st_file" \
+      -e 's/"status":[[:space:]]*"running"/"status": "orphaned"/' \
+      -e "s/\"reason\":[[:space:]]*\"[^\"]*\"/\"reason\": \"pid $pid not alive; reconciled by job.sh\"/"
   fi
 }
 
 cmd_status() {
-  local dir="${1:?status: run-dir required}"
-  [[ -d "$dir" ]] || die "no such run dir: $dir"
+  require_dir "${1:-}"; local dir="$1"
   reconcile "$dir"
   cat "$dir/status.json" 2>/dev/null || die "no status.json in $dir"
 }
 
 cmd_result() {
-  local dir="${1:?result: run-dir required}"; local n="${2:-80}"
-  [[ -d "$dir" ]] || die "no such run dir: $dir"
+  require_dir "${1:-}"; local dir="$1"; local n="${2:-80}"
   reconcile "$dir"
   local st; st="$(field "$dir/status.json" status)"
   echo "# status: ${st:-unknown}"
@@ -61,33 +83,33 @@ cmd_result() {
 }
 
 cmd_tail() {
-  local dir="${1:?tail: run-dir required}"; local n="${2:-50}"
-  [[ -d "$dir" ]] || die "no such run dir: $dir"
+  require_dir "${1:-}"; local dir="$1"; local n="${2:-50}"
   tail -n "$n" "$dir/log.txt" 2>/dev/null
 }
 
 cmd_cancel() {
-  local dir="${1:?cancel: run-dir required}"
-  [[ -d "$dir" ]] || die "no such run dir: $dir"
+  require_dir "${1:-}"; local dir="$1"
   # Drop the sentinel FIRST so the running run.sh classifies the imminent codex
   # death as "cancelled", not "failed".
   : >"$dir/cancel.requested"
   local pid; pid="$(field "$dir/status.json" pid)"
-  if [[ -n "$pid" && "$pid" != "null" ]] && kill -0 "$pid" 2>/dev/null; then
+  if alive_codex "$pid"; then
     kill -- -"$pid" 2>/dev/null || kill "$pid" 2>/dev/null
     sleep 1
-    kill -0 "$pid" 2>/dev/null && { kill -9 -- -"$pid" 2>/dev/null || kill -9 "$pid" 2>/dev/null; }
+    kill -9 -- -"$pid" 2>/dev/null || kill -9 "$pid" 2>/dev/null
     echo "cancelled pid $pid"
   else
-    echo "no live process for $dir"
+    echo "no live codex process for $dir"
   fi
   # If run.sh is already gone (can't write status itself), force it here.
+  # NOTE: -E (ERE) so the (running|queued) alternation works on BSD/macOS sed too
+  # — BSD BRE does not support \| and would silently no-op.
   sleep 1
-  local st_file="$dir/status.json" tmp="$dir/status.json.tmp"
+  local st_file="$dir/status.json"
   if [[ -f "$st_file" ]]; then
     local st; st="$(field "$st_file" status)"
     if [[ "$st" == "running" || "$st" == "queued" ]]; then
-      sed 's/"status":[[:space:]]*"\(running\|queued\)"/"status": "cancelled"/' "$st_file" >"$tmp" && mv -f "$tmp" "$st_file"
+      rewrite_status "$st_file" -E 's/"status":[[:space:]]*"(running|queued)"/"status": "cancelled"/'
     fi
   fi
 }

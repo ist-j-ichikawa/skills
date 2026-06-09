@@ -4,6 +4,20 @@ ist-j-ichikawa の Agent Skills 置き場。導入は **GitHub 公式の [`gh sk
 
 > [`npx skills add`(vercel skills CLI)](https://github.com/vercel-labs/skills) は**非推奨**です。`gh skill` にほぼ上位互換され(GitHub 公式・バージョン pin・マルチエージェント)、自動更新も無いため。既存利用者向けに末尾に残します。
 
+**目次**
+
+- [収録スキル](#収録スキル)
+- [インストール: gh skill(個人におすすめ)](#インストール-gh-skill--github-公式--個人におすすめ)
+- [インストール: marketplace(チームにおすすめ)](#インストール-claude-code-プラグイン-marketplace--チームにおすすめ)
+- [(非推奨) vercel skills CLI](#非推奨-vercel-skills-cli)
+
+## 収録スキル
+
+| スキル | 概要 |
+| --- | --- |
+| [`publish-html-to-pages`](skills/publish-html-to-pages/) | 単体 HTML ドキュメントを、実行リポジトリの [GitHub Pages](https://docs.github.com/pages) 公開ブランチ経由で Pages に公開する skill。公開のたびに公開ブランチ上の全 HTML を走査してルートの `index.html` (動線=ランディングページ) を自動再生成する。`/publish-html-to-pages` を明示的に呼んだときだけ動く。 |
+| [`codex`](skills/codex/) | Claude Code から [OpenAI Codex CLI](https://developers.openai.com/codex) (`codex exec`) を呼ぶ skill。fg(フォアグラウンド軽量: web検索/ファクトチェック/セカンドオピニオン/Q&A)と bg(バックグラウンド長時間委任: リファクタ/大規模調査/write 可)を自動ルーティングする。bg は `run_in_background` で Bash の 10 分制限を回避しつつ、idle/wall timeout・orphan 回収・部分出力を扱う堅牢ラッパー ([`scripts/run.sh`](skills/codex/scripts/run.sh) + [`job.sh`](skills/codex/scripts/job.sh)) で、公式 codex-plugin が未解決の hang/orphan 問題を構造的に解消する。「Codexに聞いて」「Codexに任せて」等で起動。詳細は [`SKILL.md`](skills/codex/SKILL.md) / [CLI リファレンス](skills/codex/references/cli-reference.md)。 |
+
 ## インストール (gh skill — GitHub 公式 / 個人におすすめ)
 
 GitHub CLI 2.90.0+ なら、`gh skill` で直接入れられます(Claude Code / Copilot / Cursor 等マルチエージェント対応、agentskills.io 仕様)。バージョン pin・GitHub ネイティブが利点。リリース tag は ruleset で immutable 化してあるので、tag 固定でも安全です。
@@ -80,11 +94,3 @@ npx skills remove publish-html-to-pages -g    # 削除
 
 > `update` / `list` は実行したディレクトリのスコープが対象(グローバルは `-g`)。npx キャッシュ破損で `ENOENT ... _npx/.../package.json` が出たら `rm -rf ~/.npm/_npx` 後に再実行(キャッシュは自動再生成)。
 
-## 収録スキル
-
-| スキル | 概要 |
-| --- | --- |
-| [`publish-html-to-pages`](skills/publish-html-to-pages/) | 単体 HTML ドキュメントを、実行リポジトリの GitHub Pages 公開ブランチ経由で Pages に公開する skill。公開のたびに公開ブランチ上の全 HTML を走査してルートの `index.html` (動線=ランディングページ) を自動再生成する。`/publish-html-to-pages` を明示的に呼んだときだけ動く。 |
-| [`codex`](skills/codex/) | Claude Code から OpenAI Codex CLI (`codex exec`) を呼ぶ skill。fg(フォアグラウンド軽量: web検索/ファクトチェック/セカンドオピニオン/Q&A)と bg(バックグラウンド長時間委任: リファクタ/大規模調査/write 可)を自動ルーティングする。bg は `run_in_background` で Bash の 10 分制限を回避しつつ、idle/wall timeout・orphan 回収・部分出力を扱う堅牢ラッパー (`scripts/run.sh` + `job.sh`) で、公式 codex-plugin が未解決の hang/orphan 問題を構造的に解消する。「Codexに聞いて」「Codexに任せて」等で起動。 |
-
-> **旧 `codex-query` / `codex-direct` からの移行**: この `codex` skill は、旧 `claude-code-codex-skill`(marketplace `ist-j-ichikawa/codex-query`、fg 軽量クエリ専用)と user-scope の `codex-direct`(bg 長時間委任専用)を 1 本に統合した後継です。トリガー(「Codexに聞いて」「Codexに任せて」等)はそのまま使えます。旧 2 つを入れている場合は外して(`/plugin uninstall` / 旧ファイル削除)この `codex` に寄せてください。
