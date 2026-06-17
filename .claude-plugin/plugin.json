@@ -1,6 +1,6 @@
 {
   "name": "j-stack",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "ist-j-ichikawa の Agent Skills (publish-html-to-pages, codex, codex-key-bootstrap 等)。skills/ 配下の各 SKILL.md を同梱。",
   "author": {
     "name": "ist-j-ichikawa"

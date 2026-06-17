@@ -2,7 +2,7 @@
 
 クライアントから提供された **OpenAI API キー**を、macOS の Keychain・[direnv](https://direnv.net)・リポジトリ単位の `CODEX_HOME` を組み合わせて、**そのリポジトリの中だけで安全に使う**ためのセットアップ／監査 skill です。生の鍵をファイルに書かず、リポジトリごとに別のクライアント鍵を切り替えられます。
 
-> モデル（Claude Code / Codex）が実行する指示書は [`SKILL.md`](SKILL.md)（英語）です。こちらは人間向けの日本語解説で、**鍵がどう流れるか**を図で示します。
+> モデル（Claude Code 等のコーディングエージェント）が実行する指示書は [`SKILL.md`](SKILL.md)（英語）です。こちらは人間向けの日本語解説で、**鍵がどう流れるか**を図で示します。
 
 ## 何をする skill か
 
@@ -11,6 +11,13 @@
 - [OpenAI US エンドポイント](https://us.api.openai.com/v1) を使う。
 - Codex CLI と Claude Code の公式 `codex-plugin-cc` が、同じ環境・設定をそのまま継承する。
 - 1 台のマシンで複数クライアントの鍵を、Keychain のサービス名を分けて共存させられる。
+
+## これは Claude Code 専用ではない
+
+[Agent Skill](https://agentskills.io)（gh skill 互換）なので、**Claude Code / GitHub Copilot / Cursor などマルチエージェント**で使えます。Claude Code 専用ではありません。
+
+- この skill が設定するのは **Codex CLI の認証環境**（Keychain＋direnv＋`CODEX_HOME`）。**実行したエージェントが何であれ Codex 単体に効く**＝Claude Code とは独立です。
+- Claude Code 固有なのは「前提」の `codex-plugin-cc` 導入と「確認方法」の `/codex:setup` だけ（**任意の追加ステップ**）。コアの鍵設定は agent 非依存です。
 
 ## 仕組み（実行時の鍵の流れ）
 
@@ -61,6 +68,7 @@ flowchart TD
 | 面 | クライアント鍵が効くか |
 | --- | --- |
 | **Codex CLI** | ✅ direnv が効いたシェルで実行すれば効く（基本はこれ）|
+| **Claude Code（codex-plugin-cc）** | ✅ direnv ロード済みシェルから起動した Claude Code なら効く（内部で Codex CLI を使うため）|
 | **IDE 拡張**（VS Code 等）| ⚠️ direnv ロード済みシェルから IDE を起動したときだけ |
 | **Codex デスクトップ app（GUI）** | ❌ ディレクトリを開いても効かない（下記。要ディスク永続化）|
 | ChatGPT / cloud | ❌ ローカル設定を一切見ない（別系統）|
