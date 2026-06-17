@@ -29,8 +29,8 @@ OpenAI Codex CLI を `codex exec` でヘッドレス呼び出しする。**fg**(
 
 ## 前提
 
-- `npm i -g @openai/codex` または `brew install --cask codex` 済み (確認: `codex --version`、想定 0.137.0)。
-- `codex login` 済み、または `OPENAI_API_KEY`/`CODEX_API_KEY`。公式 docs: https://developers.openai.com/codex
+- **codex CLI が無ければ公式の方法で入れる**: `command -v codex` で確認し、無ければインストールする (Homebrew があれば `brew install --cask codex`、無ければ公式インストーラ `curl -fsSL https://chatgpt.com/codex/install.sh | sh`、npm 派は `npm install -g @openai/codex` ※スコープ付き。無印 `codex` は別物)。確認: `codex --version` (想定 0.137.0 以降)。
+- `codex login` 済み、または `OPENAI_API_KEY`/`CODEX_API_KEY` が設定済みであること。未認証なら案内する (鍵・ログインの代行はしない)。公式 docs: https://developers.openai.com/codex
 
 ## Step 0: プロジェクト設定の確認 (毎回)
 
