@@ -25,7 +25,7 @@
 
 ```mermaid
 flowchart TD
-    KC[("macOS Keychain<br/>サービス名: client-openai-api-key")]
+    KC[("macOS Keychain<br/>サービス名: codex-client-key")]
     ENVRC[".envrc<br/>（cd 時に direnv が読む）"]
     ENV["シェルの環境変数<br/>OPENAI_API_KEY = 鍵<br/>CODEX_HOME = リポジトリ/.codex-client"]
     CFG["$CODEX_HOME/config.toml<br/>provider = openai-us<br/>base_url = us.api.openai.com/v1<br/>env_key = OPENAI_API_KEY"]

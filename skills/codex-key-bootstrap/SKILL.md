@@ -46,8 +46,8 @@ Confirm the user has the plugin and tools (do not block on it, but mention any g
 1. **Confirm the target repo root and client slug.**
    - Use `pwd -P` from the repo root. Store it: `REPO_ROOT="$(pwd -P)"`.
    - Ask whether this is for a specific client. If yes, pick a slug and set the service name
-     accordingly, e.g. `CLIENT_KEY_SERVICE="client-openai-api-key-acme"`. Otherwise use the default
-     `client-openai-api-key`.
+     accordingly, e.g. `CLIENT_KEY_SERVICE="codex-client-key-acme"`. Otherwise use the default
+     `codex-client-key`.
 
 2. **Confirm Keychain has the key without revealing it.**
 
@@ -70,7 +70,7 @@ Confirm the user has the plugin and tools (do not block on it, but mention any g
    the default assignment):
 
    ```sh
-   CLIENT_KEY_SERVICE="${CLIENT_KEY_SERVICE:-client-openai-api-key}"
+   CLIENT_KEY_SERVICE="${CLIENT_KEY_SERVICE:-codex-client-key}"
 
    if ! _key="$(security find-generic-password -a "$USER" -s "$CLIENT_KEY_SERVICE" -w 2>/dev/null)"; then
      log_error "Keychain service '$CLIENT_KEY_SERVICE' not found. Add the key with:"
@@ -117,7 +117,7 @@ Confirm the user has the plugin and tools (do not block on it, but mention any g
    Use only the client-provided OpenAI API key for OpenAI-backed Codex or codex-plugin-cc work in this repository.
 
    - Resolve the key via `OPENAI_API_KEY`.
-   - The local source of truth is the macOS Keychain service named by `CLIENT_KEY_SERVICE` (default `client-openai-api-key`).
+   - The local source of truth is the macOS Keychain service named by `CLIENT_KEY_SERVICE` (default `codex-client-key`).
    - `CODEX_HOME` must point to this repository's `.codex-client` directory.
    - Never paste, print, log, commit, or write the raw API key.
    - Use the OpenAI US endpoint `https://us.api.openai.com/v1`.
@@ -173,6 +173,15 @@ Status: ready
 
 Confirm `Status: ready` and that the `- auth:` line references OpenAI (US) / an API key, not ChatGPT.
 
+**Codex desktop GUI app — not a supported key surface.** A Finder/Dock/Spotlight-launched app inherits
+launchd's environment, not the direnv-loaded shell's, so it sees neither the per-repo `CODEX_HOME` nor
+the env-injected `OPENAI_API_KEY` and silently falls back to ChatGPT auth under `~/.codex`. Opening the
+repo directory inside the app does not run direnv. Treat this skill as CLI-first (and Claude Code /
+IDE-extension only when launched from the direnv-loaded shell). If the GUI app must use the client key,
+the only reliable path is on-disk auth via `codex login --with-api-key`, which is global to `CODEX_HOME`
+and gives up per-repo isolation; `open -a` only forwards the env on a cold launch, so do not rely on it.
+Confirm with `codex doctor` regardless of surface.
+
 ## Audit
 
 Check for accidental key material without revealing the real key.
@@ -191,6 +200,10 @@ Expected: no hits. (A documentation placeholder such as a bare `sk-` prefix with
 - `codex-plugin-cc` shows ChatGPT auth instead of the API key: Claude Code was likely launched outside
   the direnv-loaded repo shell. `cd` to the repo, confirm `echo $CODEX_HOME` is set, run `direnv reload`,
   and relaunch Claude Code from that shell (a running Claude Code will not pick up env changes).
+- Codex **desktop GUI app** shows ChatGPT instead of the client key: a Finder/Dock launch does not
+  inherit the direnv env, and opening the directory inside the app does not run direnv. Use the Codex
+  CLI from the direnv-loaded shell, or persist the key on disk with `codex login --with-api-key` (global
+  to `CODEX_HOME`). `open -a` only forwards env on a cold launch — unreliable.
 - `CODEX_HOME` is empty or wrong: run `direnv allow` in the repo root and reopen the shell. Confirm the
   `direnv hook` line is in `~/.zshrc`.
 - `.envrc` reports the Keychain service was not found: the service name in `.envrc`
