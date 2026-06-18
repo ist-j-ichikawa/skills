@@ -18,10 +18,10 @@ description: |
   "Codexでリファクタ", "ask Codex", "delegate to codex", or any /codex:rescue timeout.
 ---
 
-# /codex — Codex CLI 統合呼び出し (fg 軽量クエリ + bg 長時間委任)
+# /codex — Codex CLI 統合呼び出し (即答モード + 委任モード)
 
-OpenAI Codex CLI を `codex exec` でヘッドレス呼び出しする。**fg**(フォアグラウンド軽量)と
-**bg**(バックグラウンド長時間)を自動で使い分ける 1 本。codex CLI の詳細仕様は
+OpenAI Codex CLI を `codex exec` でヘッドレス呼び出しする。**即答モード**(fg=フォアグラウンド軽量)と
+**委任モード**(bg=バックグラウンド長時間)を自動で使い分ける 1 本。codex CLI の詳細仕様は
 `references/cli-reference.md`、活用パターンは `references/use-cases.md`。
 
 > コードレビューは公式 `/codex:review`、ジョブ管理 UI が要るなら公式 `/codex:rescue` も併用可
@@ -38,19 +38,19 @@ OpenAI Codex CLI を `codex exec` でヘッドレス呼び出しする。**fg**(
 設定済みの model / web_search / profiles を把握し `-c` で重複指定しない。`[profiles.search]` 等の
 profile v2 (別ファイル `$CODEX_HOME/<name>.config.toml`) があれば `-p <name>` で使う。
 
-## Step 1: fg / bg のルーティング (FR1)
+## Step 1: 即答モード / 委任モード のルーティング (FR1)
 
-判定して、実行前に **1 行**で「mode / sandbox / 想定時間」を提示してから動く。
+2 つのモード — **即答モード**(fg=foreground。軽量・read-only)と **委任モード**(bg=background。長時間・write 可) — を判定し、実行前に **1 行**で「モード / sandbox / 想定時間」を提示してから動く。
 
-- **fg にするのは以下を全て満たす時だけ**: read-only・ファイル編集なし・テスト/ビルドなし・対象が狭い・想定 2〜3 分以内・出力が短い。
-- **以下のいずれかなら bg**: 書き込みが要る・multi-file 調査・実装修正・レビュー・テスト/ビルド・依存操作・長い web 調査・成果物(diff/ファイル)が要る・**所要時間が読めない**。
-- **迷ったら bg**。軽いクエリを bg に回す損失より、重いタスクを fg で回して Claude の 10 分制限に被弾する損失の方が大きい。
-- ユーザー明示の override を尊重: 「軽く聞く/read-only/foreground」→ fg、「委任/background/write/任せて」→ bg。
+- **即答モードにするのは以下を全て満たす時だけ**: read-only・ファイル編集なし・テスト/ビルドなし・対象が狭い・想定 2〜3 分以内・出力が短い。
+- **以下のいずれかなら委任モード**: 書き込みが要る・multi-file 調査・実装修正・レビュー・テスト/ビルド・依存操作・長い web 調査・成果物(diff/ファイル)が要る・**所要時間が読めない**。
+- **迷ったら委任モード**。軽いクエリを委任モードに回す損失より、重いタスクを即答モードで回して Claude の 10 分制限に被弾する損失の方が大きい。
+- ユーザー明示の override を尊重: 「軽く聞く/read-only/foreground」→ 即答モード、「委任/background/write/任せて」→ 委任モード。
 
-## Step 2 (fg): フォアグラウンド軽量クエリ
+## Step 2 — 即答モード (fg): フォアグラウンド軽量クエリ
 
 read-only・`--ephemeral`(session 不要)で直接実行。Bash `timeout` は **300000 (5 分) の fail-fast**。
-**timeout したら自動で bg に再投入**する(Step 3 へ)。
+**timeout したら自動で委任モードに再投入**する(Step 3 へ)。
 
 ```bash
 codex exec --ephemeral -s read-only --skip-git-repo-check -c approval_policy=never "プロンプト"
@@ -64,7 +64,7 @@ codex exec --ephemeral -s read-only --skip-git-repo-check -c approval_policy=nev
 - 出力は stdout をそのまま表示。200 行超なら要約。exit≠0 は stderr を確認して正直に報告。
 - モデル: ユーザー指定があればそれ。無ければ config 既定。軽い検索/確認は `gpt-5.4-mini` + `low` が速い。
 
-## Step 3 (bg): バックグラウンド長時間委任
+## Step 3 — 委任モード (bg): バックグラウンド長時間委任
 
 `scripts/run.sh` を Bash の **`run_in_background: true`** で起動する。これで Bash 10 分制限を回避し、
 run.sh が親として codex を握り続け(detached にしない)、idle/wall timeout・orphan・partial output を扱う。
@@ -111,13 +111,13 @@ bash <skill-dir>/scripts/job.sh list                # 全 run 一覧
 bash <skill-dir>/scripts/job.sh clean 7             # 7日より古い終了済み run を掃除 (実行中は残す)
 ```
 
-run dir は bg のたびに増える。溜まってきたら `job.sh clean [日数]` を案内/実行する (既定 7 日、終了済みのみ削除)。
+run dir は委任モードのたびに増える。溜まってきたら `job.sh clean [日数]` を案内/実行する (既定 7 日、終了済みのみ削除)。
 
 - `status` が `completed` 以外(`failed`/`timed_out`/`cancelled`/`orphaned`)なら、成功を装わず `result`/`tail` の部分出力で正直に報告する(FR6)。
 - write モードだったら `git status` / `git diff --stat` を取り、Codex の自己申告でなく**実ファイル状態**を報告する。
 
 ## やらないこと / 注意
 
-- 短い read-only クエリを bg に回さない(fg で十分)。逆に重い/書き込み/時間不明は fg に回さない。
+- 短い read-only クエリを委任モードに回さない(即答モードで十分)。逆に重い/書き込み/時間不明は即答モードに回さない。
 - `codex login`/API キーの面倒は見ない(前提)。対話 TUI が欲しい場合は素の `codex` を案内。
 - そもそも Codex が不要(Claude が直接やれる)なら使わない。
