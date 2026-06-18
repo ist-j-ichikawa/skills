@@ -5,7 +5,7 @@ metadata:
   short-description: Safely configure repo-scoped client OpenAI key usage
 ---
 
-# Client OpenAI Key Setup
+# codex-key-bootstrap (Client OpenAI Key Setup)
 
 Use this skill to configure a local macOS repository so the Codex CLI and Claude Code's official
 `codex-plugin-cc` use a client-provided OpenAI API key safely and automatically. The skill writes all the

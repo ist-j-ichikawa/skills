@@ -26,7 +26,7 @@
 
 - **クライアントから生鍵を入手済み**であること。**この skill は鍵を発行しません** ―― クライアントから受け取った OpenAI API キーが手元にある前提です。
 - **direnv**: `brew install direnv` で入れ、**`~/.zshrc` に `eval "$(direnv hook zsh)"` を追記**してシェルを開き直す。⚠️ **このフックが無いと `.envrc` が読まれず鍵が一切注入されません（いちばん多い「無言の失敗」）。**
-- **Codex CLI**: `command -v codex` で確認。無ければ `brew install --cask codex`（または公式インストーラ `curl -fsSL https://chatgpt.com/codex/install.sh | sh` / `npm install -g @openai/codex` ※スコープ付き）。確認 `codex --version`。
+- **Codex CLI**: `command -v codex` で確認。無ければ入れる ―― Homebrew があれば `brew install --cask codex`（おすすめ）、無ければ公式インストーラ `curl -fsSL https://chatgpt.com/codex/install.sh | sh`、npm 派なら `npm install -g @openai/codex`（パッケージは**スコープ付き** `@openai/codex`。無印 `codex` は別物）。確認 `codex --version`。
 - **（Claude Code を使う場合のみ）`codex-plugin-cc`**: Claude Code 用の公式 Codex 連携。**プラグイン名は `codex@openai-codex`**、その**配布元 marketplace が `openai/codex-plugin-cc`** です（`/plugin marketplace add openai/codex-plugin-cc` → `/plugin install codex@openai-codex`）。Codex CLI 単体で使うなら不要。
 
 ## 仕組み（実行時の鍵の流れ）
