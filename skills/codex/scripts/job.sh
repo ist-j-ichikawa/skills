@@ -128,6 +128,33 @@ cmd_list() {
   done
 }
 
+# Garbage-collect old finished runs. Without this the run dir grows without
+# bound (every bg delegation leaves a dir behind). Only ever removes runs in a
+# TERMINAL state older than N days — never a running/queued job, never a dir
+# without a status.json (could be mid-creation or not ours).
+cmd_clean() {
+  local dry=0
+  [[ "${1:-}" == "--dry-run" ]] && { dry=1; shift; }
+  local days="${1:-7}"; local root="${2:-$RUNS_ROOT}"
+  [[ "$days" =~ ^[0-9]+$ ]] || die "clean: days must be a non-negative integer"
+  [[ -d "$root" ]] || { echo "no runs under $root"; return 0; }
+  local now cutoff d st mt removed=0
+  now="$(date +%s)"; cutoff=$(( now - days * 86400 ))
+  for d in "$root"/*/; do
+    [[ -d "$d" && -f "$d/status.json" ]] || continue
+    [[ -L "${d%/}" ]] && continue   # never follow/remove a symlinked run dir
+    reconcile "$d"
+    st="$(field "$d/status.json" status)"
+    case "$st" in completed|failed|timed_out|cancelled|orphaned) ;; *) continue ;; esac
+    mt="$(date -r "$d/status.json" +%s 2>/dev/null || echo "$now")"
+    [[ "$mt" -lt "$cutoff" ]] || continue
+    if [[ "$dry" -eq 1 ]]; then echo "would remove: ${d%/} ($st)"; else rm -rf -- "$d"; fi
+    removed=$(( removed + 1 ))
+  done
+  if [[ "$dry" -eq 1 ]]; then echo "[dry-run] $removed terminal run dir(s) older than ${days}d under $root"
+  else echo "removed $removed terminal run dir(s) older than ${days}d under $root"; fi
+}
+
 sub="${1:-}"; shift || true
 case "$sub" in
   status) cmd_status "$@" ;;
@@ -135,15 +162,18 @@ case "$sub" in
   tail)   cmd_tail "$@" ;;
   cancel) cmd_cancel "$@" ;;
   list)   cmd_list "$@" ;;
+  clean)  cmd_clean "$@" ;;
   ""|-h|--help)
     cat <<EOF
-Usage: job.sh <status|result|tail|cancel|list> [args]
+Usage: job.sh <status|result|tail|cancel|list|clean> [args]
   status <run-dir>        status.json (orphan-reconciled)
   result <run-dir> [N]    final answer, or last N log lines if empty
   tail   <run-dir> [N]    last N log lines (default 50)
   cancel <run-dir>        kill the codex process group, mark cancelled
   list   [runs-root]      list runs (default: \$CODEX_RUNS_ROOT or
                           ~/.local/state/j-stack-codex/runs)
+  clean  [DAYS] [root]    delete TERMINAL runs older than DAYS (default 7);
+                          never touches running/queued runs
 EOF
     ;;
   *) die "unknown subcommand: $sub (try -h)" ;;

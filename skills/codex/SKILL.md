@@ -108,7 +108,10 @@ bash <skill-dir>/scripts/job.sh status "$RUN_DIR"   # 状態 (orphan は自動 r
 bash <skill-dir>/scripts/job.sh result "$RUN_DIR"   # 最終回答、空なら log 末尾(部分出力)
 bash <skill-dir>/scripts/job.sh cancel "$RUN_DIR"   # 中断 (プロセスグループ kill → cancelled)
 bash <skill-dir>/scripts/job.sh list                # 全 run 一覧
+bash <skill-dir>/scripts/job.sh clean 7             # 7日より古い終了済み run を掃除 (実行中は残す)
 ```
+
+run dir は bg のたびに増える。溜まってきたら `job.sh clean [日数]` を案内/実行する (既定 7 日、終了済みのみ削除)。
 
 - `status` が `completed` 以外(`failed`/`timed_out`/`cancelled`/`orphaned`)なら、成功を装わず `result`/`tail` の部分出力で正直に報告する(FR6)。
 - write モードだったら `git status` / `git diff --stat` を取り、Codex の自己申告でなく**実ファイル状態**を報告する。
