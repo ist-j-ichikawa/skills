@@ -18,6 +18,16 @@
 
 - この skill が設定するのは **Codex CLI の認証環境**（Keychain＋direnv＋`CODEX_HOME`）。**実行したエージェントが何であれ Codex 単体に効く**＝Claude Code とは独立です。
 - Claude Code 固有なのは「前提」の `codex-plugin-cc` 導入と「確認方法」の `/codex:setup` だけ（**任意の追加ステップ**）。コアの鍵設定は agent 非依存です。
+- 非 Claude Code エージェント（Copilot / Cursor 等）では、検証は `codex doctor` と Codex CLI の `/status` で行ってください（`/codex:setup` は Claude Code 専用）。
+
+## 前提・依存（macOS 専用。無ければ公式の方法でインストール）
+
+実行する前に以下が要ります（足りなければ skill が公式の方法で導入を案内/実行します）。
+
+- **クライアントから生鍵を入手済み**であること。**この skill は鍵を発行しません** ―― クライアントから受け取った OpenAI API キーが手元にある前提です。
+- **direnv**: `brew install direnv` で入れ、**`~/.zshrc` に `eval "$(direnv hook zsh)"` を追記**してシェルを開き直す。⚠️ **このフックが無いと `.envrc` が読まれず鍵が一切注入されません（いちばん多い「無言の失敗」）。**
+- **Codex CLI**: `command -v codex` で確認。無ければ `brew install --cask codex`（または公式インストーラ `curl -fsSL https://chatgpt.com/codex/install.sh | sh` / `npm install -g @openai/codex` ※スコープ付き）。確認 `codex --version`。
+- **（Claude Code を使う場合のみ）`codex-plugin-cc`**: Claude Code 用の公式 Codex 連携。**プラグイン名は `codex@openai-codex`**、その**配布元 marketplace が `openai/codex-plugin-cc`** です（`/plugin marketplace add openai/codex-plugin-cc` → `/plugin install codex@openai-codex`）。Codex CLI 単体で使うなら不要。
 
 ## 仕組み（実行時の鍵の流れ）
 
@@ -53,6 +63,17 @@ flowchart TD
     E["⑤ direnv allow で有効化"]
     A --> B --> C --> D --> E
 ```
+
+鍵の登録（②）は **あなたが手で** 実行します（skill は鍵を表示・代行入力しません）。既定のサービス名 `codex-client-key` で登録する例:
+
+```sh
+printf 'Client OpenAI API key (入力は非表示): '
+read -rs OPENAI_KEY; echo
+security add-generic-password -U -a "$USER" -s codex-client-key -w "$OPENAI_KEY"
+unset OPENAI_KEY
+```
+
+クライアントが複数なら `-s codex-client-key-<クライアント名>` のように分け、その名前を `CLIENT_KEY_SERVICE` に設定します。残りの ①③④⑤ は skill が実行します。
 
 ## 重要: 認証はリポジトリ単位でしか効かない
 
@@ -98,7 +119,7 @@ direnv exec . zsh -c 'test -n "$OPENAI_API_KEY" && test "$CODEX_HOME" = "$(pwd -
 codex doctor
 ```
 
-`codex doctor` が `provider name OpenAI (US)` / `provider auth env var OPENAI_API_KEY (present)` を出せば鍵経由です（サブスクなら `stored auth mode chatgpt`）。詳しい検証・監査・トラブルシュートは [`SKILL.md`](SKILL.md) を参照してください。
+`codex doctor` が `default model provider openai-us` / `provider name OpenAI (US)` / `provider auth env var OPENAI_API_KEY (present)` を出せば鍵経由です（サブスクなら `stored auth mode chatgpt`）。詳しい検証・監査・トラブルシュートは [`SKILL.md`](SKILL.md) を参照してください。
 
 ## 楽したいとき: 親ディレクトリ方式（時短オプション）
 
@@ -106,7 +127,7 @@ codex doctor
 
 - direnv は `$PWD` から上に辿って**最初に見つかった `.envrc` 1 枚だけ**を読みます。子に自前の `.envrc` が無ければ、最も近い親の `.envrc` を自動で継承します（＝子リポごとの設定が不要）。
 - ただし: 親の `.envrc` 内で `$(pwd -P)` は**親ディレクトリに解決**されるため、`CODEX_HOME=$(pwd -P)/.codex-client` は配下で**1 つの共有 home に collapse**します（リポジトリ単位の分離にはならない）。同じ鍵・同じプロバイダで揃うなら共有で問題ありません。
-- 子リポに自前の `.envrc` を置くと、`source_up` を書かない限り親は読まれません。
+- 子リポに自前の `.envrc` を置くと、`source_up`（親 `.envrc` も読む direnv 指示）を書かない限り親は読まれません。
 
 | | per-repo（既定・推奨）| 親ディレクトリ cascade（時短）|
 | --- | --- | --- |

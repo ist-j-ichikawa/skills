@@ -8,9 +8,8 @@ metadata:
 # Client OpenAI Key Setup
 
 Use this skill to configure a local macOS repository so the Codex CLI and Claude Code's official
-`codex-plugin-cc` use a client-provided OpenAI API key safely and automatically. The skill writes the
-files inline, so there is no need to copy the repo's `templates/` directory (those templates are the
-canonical reference for the same content).
+`codex-plugin-cc` use a client-provided OpenAI API key safely and automatically. The skill writes all the
+required files inline.
 
 ## Goals
 
